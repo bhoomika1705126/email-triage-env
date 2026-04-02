@@ -1,0 +1,8 @@
+{
+  "easy": 0.5,
+  "medium": 1.0,
+  "hard": 0.9,
+  "average": 0.7999999999999999,
+  "model": "llama-3.3-70b-versatile",
+  "provider": "https://api.groq.com/openai/v1"
+}

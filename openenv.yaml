@@ -1,0 +1,45 @@
+name: email-triage-env
+version: 1.0.0
+description: Email triage environment for training AI agents to prioritize and respond to customer support emails
+
+entry_point: environment.py:EmailTriageEnv
+
+observation_space:
+  type: dict
+  properties:
+    email_subject:
+      type: string
+    email_body:
+      type: string
+    sender:
+      type: string
+    urgency_keywords:
+      type: array
+      items:
+        type: string
+    current_queue_size:
+      type: integer
+    last_action_result:
+      type: string
+
+action_space:
+  type: dict
+  properties:
+    action_type:
+      type: string
+      enum: [respond, escalate, archive, request_info, mark_urgent]
+    response_text:
+      type: string
+      nullable: true
+    priority:
+      type: integer
+      minimum: 1
+      maximum: 5
+      nullable: true
+
+reward_space:
+  type: float
+  minimum: 0.0
+  maximum: 1.0
+
+max_episode_steps: 50

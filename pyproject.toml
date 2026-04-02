@@ -1,0 +1,24 @@
+[build-system]
+requires = ["hatchling>=1.0.0"]
+build-backend = "hatchling.build"
+
+[project]
+name = "email-triage-env"
+version = "1.0.0"
+description = "Email triage environment for training AI agents"
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = [
+    "openenv-core>=0.1.0",
+    "openai>=1.0.0",
+    "pydantic>=2.0.0",
+    "fastapi>=0.100.0",
+    "uvicorn>=0.23.0",
+    "numpy>=1.24.0"
+]
+
+[project.scripts]
+server = "server:main"
+
+[tool.openenv]
+entry_point = "environment:EmailTriageEnv"
