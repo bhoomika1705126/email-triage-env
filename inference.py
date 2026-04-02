@@ -88,13 +88,11 @@ def run_episode(env, model_name: str, api_base_url: str, api_key: str, task_name
     step = 0
     max_steps = 50
     
-    print(f"\nStarting {task_name.upper()} task episode...")
-    
     while not done and step < max_steps:
         # Prepare prompt
         prompt = f"""Current email:
 Subject: {observation.email_subject}
-Body: {observation.email_body[:300]}  # Truncated for brevity
+Body: {observation.email_body[:300]}
 Sender: {observation.sender}
 Queue size: {observation.current_queue_size}
 Urgency keywords: {', '.join(observation.urgency_keywords)}
@@ -114,7 +112,6 @@ Choose an action and respond in natural language (e.g., 'respond with: [response
                 max_tokens=200
             )
             response = completion.choices[0].message.content or ""
-            print(f"  Model response: {response[:80]}...")
         except Exception as e:
             print(f"  API Error: {e}")
             response = "respond with: I'm looking into your issue."
@@ -132,23 +129,24 @@ Choose an action and respond in natural language (e.g., 'respond with: [response
                 "subject": observation.email_subject,
                 "body": observation.email_body[:200],
                 "sender": observation.sender,
-                "true_urgency": urgency_score  # Now this is an integer, not a list
+                "true_urgency": urgency_score
             },
             "action": action_dict,
             "response": response
         })
         
         observation, reward, done, info = env.step(action)
-        print(f"  Step {step}: {action.action_type} -> Reward: {reward:.3f} | Done: {done}")
+        
+        # Print STEP in required format
+        print(f"STEP {step}: {action.action_type}")
+        
         step += 1
     
-    print(f"Episode complete! Total steps: {step}")
     return trajectory
 
 def main():
-    print("="*60)
-    print("Email Triage Environment - Baseline Inference")
-    print("="*60)
+    # Print START as required by competition format
+    print("START")
     
     # Read environment variables
     api_base_url = os.environ.get("API_BASE_URL", "https://api.openai.com/v1")
@@ -161,14 +159,12 @@ def main():
         if api_key:
             api_base_url = "https://api.groq.com/openai/v1"
             model_name = "llama-3.3-70b-versatile"
-            print("✓ Using Groq API")
     
     if not api_key:
         api_key = os.environ.get("OPENROUTER_API_KEY", "")
         if api_key:
             api_base_url = "https://openrouter.ai/api/v1"
             model_name = "x-ai/grok-beta"
-            print("✓ Using OpenRouter API")
     
     if not api_key:
         print("\n❌ ERROR: No API key found!")
@@ -176,13 +172,7 @@ def main():
         print("  OPENAI_API_KEY - for OpenAI")
         print("  GROQ_API_KEY - for Groq (free)")
         print("  OPENROUTER_API_KEY - for OpenRouter (free)")
-        print("\nExample for Groq (free):")
-        print("  $env:GROQ_API_KEY = 'gsk_...'")
-        print("  python inference.py")
         sys.exit(1)
-    
-    print(f"\n✓ Using API: {api_base_url}")
-    print(f"✓ Model: {model_name}")
     
     # Import grader
     from tasks.grader import run_grader
@@ -192,23 +182,18 @@ def main():
     
     # Run each task type
     for task_name in ['easy', 'medium', 'hard']:
-        print(f"\n{'='*60}")
-        print(f"📧 Running {task_name.upper()} task")
-        print(f"{'='*60}")
-        
         # Reset environment for each task
         env.reset()
         
-        # Run episode with task name for logging
+        # Run episode
         trajectory = run_episode(env, model_name, api_base_url, api_key, task_name)
         
         # Grade trajectory
         try:
             score = run_grader(task_name, trajectory)
             scores[task_name] = score
-            print(f"\n✅ {task_name.upper()} Score: {score:.3f}")
         except Exception as e:
-            print(f"\n❌ Grader error for {task_name}: {e}")
+            print(f"Grader error for {task_name}: {e}")
             scores[task_name] = 0.0
     
     # Calculate average score
@@ -218,22 +203,12 @@ def main():
         scores['model'] = model_name
         scores['provider'] = api_base_url
     
-    print(f"\n{'='*60}")
-    print("📊 FINAL RESULTS")
-    print(f"{'='*60}")
-    for task, score in scores.items():
-        if task not in ['model', 'provider']:
-            print(f"  {task.upper()}: {score:.3f}")
-    
-    if 'model' in scores:
-        print(f"\n  Model: {scores['model']}")
-    
     # Save results
     with open('baseline_scores.json', 'w') as f:
         json.dump(scores, f, indent=2)
     
-    print(f"\n✓ Scores saved to baseline_scores.json")
-    print("\n🎉 Baseline inference complete!")
+    # Print END as required by competition format
+    print("END")
 
 if __name__ == "__main__":
     main()
