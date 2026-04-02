@@ -1,22 +1,23 @@
-FROM python:3.10-slim
+﻿FROM python:3.10-slim
 
 WORKDIR /app
 
-# Copy dependency files
+# Copy requirements first for better caching
 COPY requirements.txt .
-COPY pyproject.toml .
 
 # Install dependencies
 RUN pip install --no-cache-dir -r requirements.txt
 RUN pip install --no-cache-dir uvicorn fastapi
 
-# Copy application code
-COPY environment.py openenv.yaml ./
-COPY server.py ./
+# Copy all application files
+COPY environment.py .
+COPY server.py .
+COPY app.py .
+COPY openenv.yaml .
 COPY tasks/ ./tasks/
 
-# Expose port
+# Expose the port
 EXPOSE 7860
 
-# Run the server using uvicorn (recommended for FastAPI)
-CMD ["uvicorn", "server:app", "--host", "0.0.0.0", "--port", "7860", "--log-level", "info"]
+# Run the application
+CMD ["uvicorn", "app:app", "--host", "0.0.0.0", "--port", "7860"]
