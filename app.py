@@ -34,8 +34,20 @@ def root():
 def health():
     return {"status": "healthy", "environment": "email-triage-env"}
 
+# Add both GET and POST for /reset (OpenEnv requires POST)
 @app.get("/reset")
-def reset():
+def reset_get():
+    if not FULL_ENV:
+        return {"message": "Reset endpoint - working! (simplified mode)"}
+    env = get_env()
+    if env:
+        obs = env.reset()
+        return {"observation": obs.dict() if hasattr(obs, 'dict') else obs}
+    return {"message": "Reset called"}
+
+@app.post("/reset")
+def reset_post():
+    """POST endpoint for OpenEnv compliance"""
     if not FULL_ENV:
         return {"message": "Reset endpoint - working! (simplified mode)"}
     env = get_env()
