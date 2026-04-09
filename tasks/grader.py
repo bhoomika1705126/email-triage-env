@@ -1,5 +1,3 @@
-"""Task graders for Email Triage Environment"""
-
 def grade_easy_task(trajectory):
     """Grade easy task - low urgency emails"""
     if not trajectory:
