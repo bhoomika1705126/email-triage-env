@@ -1,120 +1,79 @@
 #!/usr/bin/env python
-"""Inference script that runs 3 tasks with graders - Phase 2 Compliant"""
+"""Complete inference script for Email Triage Environment - Phase 2 Compliant"""
 import json
 import sys
 import os
 from openai import OpenAI
 
-# ============================================
-# TASK GRADERS (built-in)
-# ============================================
 
-def grade_easy_task(actions, emails):
-    """Grade easy task: correctly archive low-urgency emails"""
-    if not actions:
-        return 0.0
-    
-    correct = 0
-    total = 0
+def create_trajectory(actions, emails):
+    """Create trajectory dict from actions and emails"""
+    trajectory = []
     for i, (email, action) in enumerate(zip(emails, actions)):
-        urgency = email.get('urgency', 3)
-        if urgency <= 2:  # Low urgency emails
-            total += 1
-            if action == 'archive':
-                correct += 1
-            elif action == 'respond':
-                correct += 0.5
-    
-    if total == 0:
-        return 0.5
-    return correct / total
+        trajectory.append({
+            'step': i,
+            'email': {
+                'subject': email['subject'],
+                'true_urgency': email['urgency']
+            },
+            'action': {
+                'action_type': action,
+                'response_text': None,
+                'priority': None
+            }
+        })
+    return trajectory
 
-def grade_medium_task(actions, emails):
-    """Grade medium task: correctly escalate urgent issues"""
-    if not actions:
-        return 0.0
-    
-    correct = 0
-    total = 0
-    for i, (email, action) in enumerate(zip(emails, actions)):
-        urgency = email.get('urgency', 3)
-        if urgency >= 4:  # High urgency emails
-            total += 1
-            if action == 'escalate':
-                correct += 1
-            elif action == 'mark_urgent':
-                correct += 0.5
-    
-    if total == 0:
-        return 0.5
-    return correct / total
-
-def grade_hard_task(actions, emails):
-    """Grade hard task: appropriate responses for all emails"""
-    if not actions:
-        return 0.0
-    
-    correct = 0
-    for i, (email, action) in enumerate(zip(emails, actions)):
-        urgency = email.get('urgency', 3)
-        
-        if urgency >= 4 and action == 'escalate':
-            correct += 1
-        elif urgency <= 2 and action == 'archive':
-            correct += 1
-        elif 2 < urgency < 4 and action == 'respond':
-            correct += 1
-        elif action in ['respond', 'archive', 'escalate', 'request_info', 'mark_urgent']:
-            correct += 0.5
-    
-    return correct / len(emails)
-
-# ============================================
-# MAIN FUNCTION
-# ============================================
 
 def main():
     print("[START] task=email_triage")
     
-    # Get API credentials
+    # Get API credentials from environment
     api_base_url = os.environ.get("API_BASE_URL", "https://api.openai.com/v1")
     api_key = os.environ.get("API_KEY", os.environ.get("OPENAI_API_KEY", ""))
     model_name = os.environ.get("MODEL_NAME", "gpt-3.5-turbo")
     
     if not api_key:
-        print("[ERROR] No API_KEY found")
+        print("[ERROR] No API_KEY found in environment variables")
         print("[END] task=email_triage score=0.0 steps=0")
         sys.exit(1)
     
-    client = OpenAI(base_url=api_base_url, api_key=api_key)
+    # Initialize OpenAI client
+    try:
+        client = OpenAI(base_url=api_base_url, api_key=api_key, timeout=30)
+    except Exception as e:
+        print(f"[ERROR] Failed to create client: {e}")
+        print("[END] task=email_triage score=0.0 steps=0")
+        sys.exit(1)
     
     # Email dataset
     emails = [
-        {"subject": "URGENT: Account locked - can't access funds", "urgency": 5},
-        {"subject": "Question about billing cycle", "urgency": 2},
-        {"subject": "Feature suggestion: Dark mode", "urgency": 1},
-        {"subject": "Security alert: Unusual login detected", "urgency": 4},
-        {"subject": "Refund request - double charged", "urgency": 3}
+        {"subject": "URGENT: Account locked - can't access funds", "urgency": 5, "body": "Account access issue"},
+        {"subject": "Question about billing cycle", "urgency": 2, "body": "Billing question"},
+        {"subject": "Feature suggestion: Dark mode", "urgency": 1, "body": "Feature request"},
+        {"subject": "Security alert: Unusual login detected", "urgency": 4, "body": "Security concern"},
+        {"subject": "Refund request - double charged", "urgency": 3, "body": "Billing issue"}
     ]
     
-    # Run inference to get actions
     actions = []
     
+    # Process each email
     for i, email in enumerate(emails):
         prompt = f"""Email: {email['subject']}
-Urgency: {email['urgency']}/5
+Urgency level: {email['urgency']}/5
 
-Choose action (archive/respond/escalate/request_info/mark_urgent):"""
+Choose the best action from: archive, respond, escalate, request_info, mark_urgent
+Reply with ONLY the action name."""
         
         try:
             response = client.chat.completions.create(
                 model=model_name,
                 messages=[
-                    {"role": "system", "content": "You are a customer support agent. Reply with ONLY the action name."},
+                    {"role": "system", "content": "You are a customer support agent. Reply with ONLY the action name, nothing else."},
                     {"role": "user", "content": prompt}
                 ],
-                temperature=0.7,
-                max_tokens=20
+                temperature=0.5,
+                max_tokens=10
             )
             action = response.choices[0].message.content.strip().lower()
             
@@ -131,17 +90,25 @@ Choose action (archive/respond/escalate/request_info/mark_urgent):"""
                 action = "mark_urgent"
             else:
                 action = "respond"
+                
         except Exception as e:
-            print(f"[ERROR] API call failed: {e}")
+            print(f"[WARN] API call failed for email {i}: {e}")
             action = "respond"
         
         actions.append(action)
         print(f"[STEP] step={i} action={action}")
     
+    # Import grader
+    from tasks.grader import run_grader
+    
+    # Create trajectory
+    trajectory = create_trajectory(actions, emails)
+    
     # Run all 3 task graders
-    easy_score = grade_easy_task(actions, emails)
-    medium_score = grade_medium_task(actions, emails)
-    hard_score = grade_hard_task(actions, emails)
+    easy_score = run_grader('easy', trajectory)
+    medium_score = run_grader('medium', trajectory)
+    hard_score = run_grader('hard', trajectory)
+    
     average_score = (easy_score + medium_score + hard_score) / 3
     
     print(f"[TASK] easy score={easy_score:.3f}")
@@ -157,10 +124,15 @@ Choose action (archive/respond/escalate/request_info/mark_urgent):"""
         "average": average_score
     }
     
-    with open("baseline_scores.json", "w") as f:
-        json.dump(scores, f, indent=2)
+    try:
+        with open("baseline_scores.json", "w") as f:
+            json.dump(scores, f, indent=2)
+        print("[INFO] Saved baseline_scores.json")
+    except Exception as e:
+        print(f"[WARN] Could not save scores: {e}")
     
     sys.exit(0)
+
 
 if __name__ == "__main__":
     main()
