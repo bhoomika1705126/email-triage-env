@@ -3,15 +3,20 @@ import json
 import sys
 import os
 from openai import OpenAI
+
+# Import grader
 from tasks import run_grader
 
 def main():
-    print("[START] task=email_triage")
+    # IMPORTANT: Must print with flush=True
+    print("[START] task=email_triage", flush=True)
     
+    # Get API credentials
     api_base_url = os.environ.get("API_BASE_URL", "https://api.openai.com/v1")
     api_key = os.environ.get("API_KEY", os.environ.get("OPENAI_API_KEY", ""))
     model_name = os.environ.get("MODEL_NAME", "gpt-3.5-turbo")
     
+    # Email dataset
     emails = [
         {"urgency": 5, "subject": "Account locked"},
         {"urgency": 2, "subject": "Billing question"},
@@ -23,6 +28,7 @@ def main():
     actions = []
     trajectory = []
     
+    # Initialize client
     client = None
     if api_key and api_key != "dummy-key":
         try:
@@ -30,6 +36,7 @@ def main():
         except:
             pass
     
+    # Process emails
     for i, email in enumerate(emails):
         action = "respond"
         
@@ -69,18 +76,25 @@ def main():
             "email": {"urgency": email['urgency']},
             "action": {"action_type": action}
         })
-        print(f"[STEP] step={i} action={action}")
+        
+        # IMPORTANT: Must print STEP with exact format
+        print(f"[STEP] step={i} action={action}", flush=True)
     
+    # Run all 3 graders
     easy_score = run_grader("easy", trajectory)
     medium_score = run_grader("medium", trajectory)
     hard_score = run_grader("hard", trajectory)
     avg_score = (easy_score + medium_score + hard_score) / 3
     
-    print(f"[TASK] easy score={easy_score:.3f}")
-    print(f"[TASK] medium score={medium_score:.3f}")
-    print(f"[TASK] hard score={hard_score:.3f}")
-    print(f"[END] task=email_triage score={avg_score:.3f} steps={len(actions)}")
+    # IMPORTANT: Must print TASK scores
+    print(f"[TASK] easy score={easy_score:.3f}", flush=True)
+    print(f"[TASK] medium score={medium_score:.3f}", flush=True)
+    print(f"[TASK] hard score={hard_score:.3f}", flush=True)
     
+    # IMPORTANT: Must print END with exact format
+    print(f"[END] task=email_triage score={avg_score:.3f} steps={len(actions)}", flush=True)
+    
+    # Save scores
     with open("baseline_scores.json", "w") as f:
         json.dump({
             "easy": easy_score,
