@@ -1,5 +1,4 @@
 #!/usr/bin/env python
-"""Inference script with API calls AND 3 task graders - Scores strictly between 0 and 1"""
 import json
 import sys
 import os
@@ -9,24 +8,21 @@ from tasks import run_grader
 def main():
     print("[START] task=email_triage")
     
-    # Get API credentials
     api_base_url = os.environ.get("API_BASE_URL", "https://api.openai.com/v1")
     api_key = os.environ.get("API_KEY", os.environ.get("OPENAI_API_KEY", ""))
     model_name = os.environ.get("MODEL_NAME", "gpt-3.5-turbo")
     
-    # Email dataset with urgency levels
     emails = [
-        {"subject": "URGENT: Account locked", "urgency": 5, "body": "Cannot access account"},
-        {"subject": "Question about billing cycle", "urgency": 2, "body": "When does billing reset?"},
-        {"subject": "Feature suggestion: Dark mode", "urgency": 1, "body": "Add dark mode please"},
-        {"subject": "Security alert: Unusual login", "urgency": 4, "body": "Unknown device login"},
-        {"subject": "Refund request - double charged", "urgency": 3, "body": "Charged twice"}
+        {"urgency": 5, "subject": "Account locked"},
+        {"urgency": 2, "subject": "Billing question"},
+        {"urgency": 1, "subject": "Feature suggestion"},
+        {"urgency": 4, "subject": "Security alert"},
+        {"urgency": 3, "subject": "Refund request"}
     ]
     
     actions = []
     trajectory = []
     
-    # Initialize OpenAI client if API key is available
     client = None
     if api_key and api_key != "dummy-key":
         try:
@@ -34,45 +30,25 @@ def main():
         except:
             pass
     
-    # Process each email
     for i, email in enumerate(emails):
-        action = "respond"  # default
+        action = "respond"
         
-        # Try API call if client is available
         if client:
             try:
-                prompt = f"""Email: {email['subject']}
-Urgency: {email['urgency']}/5
-
-Choose action: archive, respond, escalate, request_info, mark_urgent
-Reply with ONLY the action name."""
-                
+                prompt = f"Urgency {email['urgency']}/5. Choose: archive, respond, escalate"
                 response = client.chat.completions.create(
                     model=model_name,
-                    messages=[
-                        {"role": "system", "content": "You are a customer support agent. Reply with ONLY the action name."},
-                        {"role": "user", "content": prompt}
-                    ],
-                    temperature=0.5,
+                    messages=[{"role": "user", "content": prompt}],
                     max_tokens=10
                 )
                 action = response.choices[0].message.content.strip().lower()
-                
-                # Normalize action
                 if "archive" in action:
                     action = "archive"
                 elif "escalate" in action:
                     action = "escalate"
-                elif "respond" in action:
-                    action = "respond"
-                elif "request" in action:
-                    action = "request_info"
-                elif "urgent" in action:
-                    action = "mark_urgent"
                 else:
                     action = "respond"
-            except Exception as e:
-                # Fallback based on urgency
+            except:
                 if email['urgency'] >= 4:
                     action = "escalate"
                 elif email['urgency'] <= 2:
@@ -80,7 +56,6 @@ Reply with ONLY the action name."""
                 else:
                     action = "respond"
         else:
-            # No API key - smart fallback
             if email['urgency'] >= 4:
                 action = "escalate"
             elif email['urgency'] <= 2:
@@ -91,32 +66,28 @@ Reply with ONLY the action name."""
         actions.append(action)
         trajectory.append({
             "step": i,
-            "email": {"subject": email['subject'], "urgency": email['urgency']},
+            "email": {"urgency": email['urgency']},
             "action": {"action_type": action}
         })
         print(f"[STEP] step={i} action={action}")
     
-    # Run all 3 task graders
     easy_score = run_grader("easy", trajectory)
     medium_score = run_grader("medium", trajectory)
     hard_score = run_grader("hard", trajectory)
-    average_score = (easy_score + medium_score + hard_score) / 3
+    avg_score = (easy_score + medium_score + hard_score) / 3
     
     print(f"[TASK] easy score={easy_score:.3f}")
     print(f"[TASK] medium score={medium_score:.3f}")
     print(f"[TASK] hard score={hard_score:.3f}")
-    print(f"[END] task=email_triage score={average_score:.3f} steps={len(actions)}")
-    
-    # Save baseline scores
-    scores = {
-        "easy": easy_score,
-        "medium": medium_score,
-        "hard": hard_score,
-        "average": average_score
-    }
+    print(f"[END] task=email_triage score={avg_score:.3f} steps={len(actions)}")
     
     with open("baseline_scores.json", "w") as f:
-        json.dump(scores, f, indent=2)
+        json.dump({
+            "easy": easy_score,
+            "medium": medium_score,
+            "hard": hard_score,
+            "average": avg_score
+        }, f, indent=2)
     
     sys.exit(0)
 

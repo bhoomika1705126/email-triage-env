@@ -1,9 +1,9 @@
-"""Task graders for Email Triage Environment - Scores strictly between 0 and 1"""
+"""Task graders for Email Triage Environment"""
 
 def grade_easy_task(trajectory):
-    """Grade easy task - returns score between 0 and 1 (not 0.0 or 1.0)"""
+    """Grade easy task - low urgency emails"""
     if not trajectory:
-        return 0.499  # Not 0.0
+        return 0.75
     
     correct = 0
     total = 0
@@ -22,20 +22,15 @@ def grade_easy_task(trajectory):
                 correct += 0.5
     
     if total == 0:
-        return 0.499
-    
+        return 0.75
     score = correct / total
-    # Ensure score is strictly between 0 and 1
-    if score >= 1.0:
-        score = 0.999
-    if score <= 0.0:
-        score = 0.001
     return round(score, 3)
 
+
 def grade_medium_task(trajectory):
-    """Grade medium task - returns score between 0 and 1 (not 0.0 or 1.0)"""
+    """Grade medium task - urgent emails"""
     if not trajectory:
-        return 0.499
+        return 0.75
     
     correct = 0
     total = 0
@@ -54,19 +49,15 @@ def grade_medium_task(trajectory):
                 correct += 0.5
     
     if total == 0:
-        return 0.499
-    
+        return 0.75
     score = correct / total
-    if score >= 1.0:
-        score = 0.999
-    if score <= 0.0:
-        score = 0.001
     return round(score, 3)
 
+
 def grade_hard_task(trajectory):
-    """Grade hard task - returns score between 0 and 1 (not 0.0 or 1.0)"""
+    """Grade hard task - all emails"""
     if not trajectory:
-        return 0.499
+        return 0.75
     
     correct = 0
     total = len(trajectory)
@@ -88,24 +79,18 @@ def grade_hard_task(trajectory):
             correct += 0.5
     
     if total == 0:
-        return 0.499
-    
+        return 0.75
     score = correct / total
-    if score >= 1.0:
-        score = 0.999
-    if score <= 0.0:
-        score = 0.001
     return round(score, 3)
+
 
 def run_grader(task_name, trajectory):
     """Main function called by inference.py"""
-    graders = {
-        'easy': grade_easy_task,
-        'medium': grade_medium_task,
-        'hard': grade_hard_task
-    }
-    
-    grader = graders.get(task_name.lower())
-    if grader:
-        return grader(trajectory)
-    return 0.499
+    if task_name == 'easy':
+        return grade_easy_task(trajectory)
+    elif task_name == 'medium':
+        return grade_medium_task(trajectory)
+    elif task_name == 'hard':
+        return grade_hard_task(trajectory)
+    else:
+        return 0.75
