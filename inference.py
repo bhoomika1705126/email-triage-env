@@ -1,5 +1,5 @@
 #!/usr/bin/env python
-"""Inference script with API calls AND 3 task graders"""
+"""Inference script with API calls AND 3 task graders - Scores strictly between 0 and 1"""
 import json
 import sys
 import os
