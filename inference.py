@@ -1,59 +1,124 @@
 #!/usr/bin/env python
-"""Inference script that makes API calls through the provided proxy"""
+"""Inference script that runs 3 tasks with graders - Phase 2 Compliant"""
 import json
 import sys
 import os
 from openai import OpenAI
 
+# ============================================
+# TASK GRADERS (built-in)
+# ============================================
+
+def grade_easy_task(actions, emails):
+    """Grade easy task: correctly archive low-urgency emails"""
+    if not actions:
+        return 0.0
+    
+    correct = 0
+    total = 0
+    for i, (email, action) in enumerate(zip(emails, actions)):
+        urgency = email.get('urgency', 3)
+        if urgency <= 2:  # Low urgency emails
+            total += 1
+            if action == 'archive':
+                correct += 1
+            elif action == 'respond':
+                correct += 0.5
+    
+    if total == 0:
+        return 0.5
+    return correct / total
+
+def grade_medium_task(actions, emails):
+    """Grade medium task: correctly escalate urgent issues"""
+    if not actions:
+        return 0.0
+    
+    correct = 0
+    total = 0
+    for i, (email, action) in enumerate(zip(emails, actions)):
+        urgency = email.get('urgency', 3)
+        if urgency >= 4:  # High urgency emails
+            total += 1
+            if action == 'escalate':
+                correct += 1
+            elif action == 'mark_urgent':
+                correct += 0.5
+    
+    if total == 0:
+        return 0.5
+    return correct / total
+
+def grade_hard_task(actions, emails):
+    """Grade hard task: appropriate responses for all emails"""
+    if not actions:
+        return 0.0
+    
+    correct = 0
+    for i, (email, action) in enumerate(zip(emails, actions)):
+        urgency = email.get('urgency', 3)
+        
+        if urgency >= 4 and action == 'escalate':
+            correct += 1
+        elif urgency <= 2 and action == 'archive':
+            correct += 1
+        elif 2 < urgency < 4 and action == 'respond':
+            correct += 1
+        elif action in ['respond', 'archive', 'escalate', 'request_info', 'mark_urgent']:
+            correct += 0.5
+    
+    return correct / len(emails)
+
+# ============================================
+# MAIN FUNCTION
+# ============================================
+
 def main():
     print("[START] task=email_triage")
     
-    # Get API credentials from environment (injected by validator)
+    # Get API credentials
     api_base_url = os.environ.get("API_BASE_URL", "https://api.openai.com/v1")
     api_key = os.environ.get("API_KEY", os.environ.get("OPENAI_API_KEY", ""))
+    model_name = os.environ.get("MODEL_NAME", "gpt-3.5-turbo")
     
     if not api_key:
-        print("[ERROR] No API_KEY found in environment")
+        print("[ERROR] No API_KEY found")
         print("[END] task=email_triage score=0.0 steps=0")
         sys.exit(1)
     
-    # Initialize OpenAI client with provided proxy
-    client = OpenAI(
-        base_url=api_base_url,
-        api_key=api_key
-    )
+    client = OpenAI(base_url=api_base_url, api_key=api_key)
     
-    # List of emails to process
+    # Email dataset
     emails = [
-        {"subject": "URGENT: Account locked", "urgency": 5},
-        {"subject": "Billing question", "urgency": 2},
-        {"subject": "Feature suggestion", "urgency": 1},
-        {"subject": "Security alert", "urgency": 4},
-        {"subject": "Refund request", "urgency": 3}
+        {"subject": "URGENT: Account locked - can't access funds", "urgency": 5},
+        {"subject": "Question about billing cycle", "urgency": 2},
+        {"subject": "Feature suggestion: Dark mode", "urgency": 1},
+        {"subject": "Security alert: Unusual login detected", "urgency": 4},
+        {"subject": "Refund request - double charged", "urgency": 3}
     ]
     
+    # Run inference to get actions
     actions = []
     
     for i, email in enumerate(emails):
-        # Make API call through the proxy
-        prompt = f"""Email subject: {email['subject']}
-Urgency level: {email['urgency']}/5
+        prompt = f"""Email: {email['subject']}
+Urgency: {email['urgency']}/5
 
-Choose the best action: archive, respond, escalate, request_info, or mark_urgent.
-Reply with ONLY the action name."""
+Choose action (archive/respond/escalate/request_info/mark_urgent):"""
         
         try:
             response = client.chat.completions.create(
-                model=os.environ.get("MODEL_NAME", "gpt-3.5-turbo"),
+                model=model_name,
                 messages=[
-                    {"role": "system", "content": "You are a customer support agent. Choose the best action."},
+                    {"role": "system", "content": "You are a customer support agent. Reply with ONLY the action name."},
                     {"role": "user", "content": prompt}
                 ],
                 temperature=0.7,
                 max_tokens=20
             )
             action = response.choices[0].message.content.strip().lower()
-            # Extract just the action word
+            
+            # Normalize action
             if "archive" in action:
                 action = "archive"
             elif "escalate" in action:
@@ -73,27 +138,23 @@ Reply with ONLY the action name."""
         actions.append(action)
         print(f"[STEP] step={i} action={action}")
     
-    # Calculate score
-    correct_actions = 0
-    for i, (email, action) in enumerate(zip(emails, actions)):
-        urgency = email['urgency']
-        if urgency >= 4 and action == 'escalate':
-            correct_actions += 1
-        elif urgency <= 2 and action == 'archive':
-            correct_actions += 1
-        elif 2 < urgency < 4 and action == 'respond':
-            correct_actions += 1
+    # Run all 3 task graders
+    easy_score = grade_easy_task(actions, emails)
+    medium_score = grade_medium_task(actions, emails)
+    hard_score = grade_hard_task(actions, emails)
+    average_score = (easy_score + medium_score + hard_score) / 3
     
-    score = correct_actions / len(emails)
-    
-    print(f"[END] task=email_triage score={score:.2f} steps={len(actions)}")
+    print(f"[TASK] easy score={easy_score:.3f}")
+    print(f"[TASK] medium score={medium_score:.3f}")
+    print(f"[TASK] hard score={hard_score:.3f}")
+    print(f"[END] task=email_triage score={average_score:.3f} steps={len(actions)}")
     
     # Save baseline scores
     scores = {
-        "easy": 0.75,
-        "medium": 0.75,
-        "hard": 0.75,
-        "average": score
+        "easy": easy_score,
+        "medium": medium_score,
+        "hard": hard_score,
+        "average": average_score
     }
     
     with open("baseline_scores.json", "w") as f:
