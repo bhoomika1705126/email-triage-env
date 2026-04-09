@@ -1,11 +1,9 @@
-# tasks/grader.py
-import json
-import sys
+"""Task graders for Email Triage Environment - Scores strictly between 0 and 1"""
 
 def grade_easy_task(trajectory):
-    """Grade easy task - low urgency emails"""
+    """Grade easy task - returns score between 0 and 1 (not 0.0 or 1.0)"""
     if not trajectory:
-        return 0.75
+        return 0.499  # Not 0.0
     
     correct = 0
     total = 0
@@ -24,13 +22,20 @@ def grade_easy_task(trajectory):
                 correct += 0.5
     
     if total == 0:
-        return 0.75
-    return round(correct / total, 3)
+        return 0.499
+    
+    score = correct / total
+    # Ensure score is strictly between 0 and 1
+    if score >= 1.0:
+        score = 0.999
+    if score <= 0.0:
+        score = 0.001
+    return round(score, 3)
 
 def grade_medium_task(trajectory):
-    """Grade medium task - urgent emails"""
+    """Grade medium task - returns score between 0 and 1 (not 0.0 or 1.0)"""
     if not trajectory:
-        return 0.75
+        return 0.499
     
     correct = 0
     total = 0
@@ -49,13 +54,19 @@ def grade_medium_task(trajectory):
                 correct += 0.5
     
     if total == 0:
-        return 0.75
-    return round(correct / total, 3)
+        return 0.499
+    
+    score = correct / total
+    if score >= 1.0:
+        score = 0.999
+    if score <= 0.0:
+        score = 0.001
+    return round(score, 3)
 
 def grade_hard_task(trajectory):
-    """Grade hard task - all emails"""
+    """Grade hard task - returns score between 0 and 1 (not 0.0 or 1.0)"""
     if not trajectory:
-        return 0.75
+        return 0.499
     
     correct = 0
     total = len(trajectory)
@@ -77,8 +88,14 @@ def grade_hard_task(trajectory):
             correct += 0.5
     
     if total == 0:
-        return 0.75
-    return round(correct / total, 3)
+        return 0.499
+    
+    score = correct / total
+    if score >= 1.0:
+        score = 0.999
+    if score <= 0.0:
+        score = 0.001
+    return round(score, 3)
 
 def run_grader(task_name, trajectory):
     """Main function called by inference.py"""
@@ -91,4 +108,4 @@ def run_grader(task_name, trajectory):
     grader = graders.get(task_name.lower())
     if grader:
         return grader(trajectory)
-    return 0.75
+    return 0.499
