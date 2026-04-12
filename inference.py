@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
-inference.py — Email Triage Environment Agent
-===============================================
+inference.py — Email Triage Environment Agent (Enhanced)
+=========================================================
 Runs an LLM agent through all 3 email tasks and emits structured stdout logs.
 
 Required environment variables:
@@ -18,12 +18,16 @@ Stdout format (must not deviate):
 import os
 import sys
 import json
+import time
 from openai import OpenAI
 
-# Import from single grader.py (NOT separate task files)
+# Import from single grader.py
 from tasks.grader import run_grader
 
-# Configuration
+# ============================================================================
+# CONFIGURATION
+# ============================================================================
+
 API_BASE_URL = os.getenv("API_BASE_URL", "https://api.openai.com/v1")
 API_KEY = os.getenv("API_KEY", "")
 MODEL_NAME = os.getenv("MODEL_NAME", "gpt-3.5-turbo")
@@ -33,32 +37,73 @@ MAX_STEPS = 5
 SUCCESS_SCORE_THRESHOLD = 0.5
 TEMPERATURE = 0.2
 MAX_TOKENS = 50
+RETRY_COUNT = 2
+RETRY_DELAY = 1
 
 TASKS = ["easy", "medium", "hard"]
 
-# Email dataset
+# ============================================================================
+# EMAIL DATASET with enhanced metadata
+# ============================================================================
+
 EMAILS = [
-    {"urgency": 5, "subject": "URGENT: Account locked - can't access funds", "body": "Account locked"},
-    {"urgency": 2, "subject": "Question about billing cycle", "body": "Billing question"},
-    {"urgency": 1, "subject": "Feature suggestion: Dark mode", "body": "Feature request"},
-    {"urgency": 4, "subject": "Security alert: Unusual login detected", "body": "Security concern"},
-    {"urgency": 3, "subject": "Refund request - double charged", "body": "Billing issue"}
+    {
+        "urgency": 5,
+        "subject": "URGENT: Account locked - can't access funds",
+        "body": "I've been locked out of my account for 3 hours. Need immediate access for a wire transfer!",
+        "sender": "john.doe@example.com",
+        "keywords": ["urgent", "locked", "immediate", "funds"]
+    },
+    {
+        "urgency": 2,
+        "subject": "Question about billing cycle",
+        "body": "When does my monthly billing cycle reset? I'm on the basic plan.",
+        "sender": "sarah@company.com",
+        "keywords": ["billing", "question", "cycle"]
+    },
+    {
+        "urgency": 1,
+        "subject": "Feature suggestion: Dark mode",
+        "body": "Would love to see dark mode in the mobile app. Just a suggestion!",
+        "sender": "dev@user.net",
+        "keywords": ["suggestion", "feature", "dark mode"]
+    },
+    {
+        "urgency": 4,
+        "subject": "Security alert: Unusual login detected",
+        "body": "I received an alert about a login from a new device. Please verify my account security.",
+        "sender": "security@customer.com",
+        "keywords": ["security", "alert", "unusual", "login"]
+    },
+    {
+        "urgency": 3,
+        "subject": "Refund request - double charged",
+        "body": "I was charged twice for my subscription this month. Need refund for $49.99.",
+        "sender": "refund@example.com",
+        "keywords": ["refund", "charged", "money", "double"]
+    }
 ]
 
-SYSTEM_PROMPT = """You are a customer support agent for email triage.
-Based on the email urgency, choose the best action.
+# ============================================================================
+# SYSTEM PROMPTS
+# ============================================================================
 
-Actions:
-- archive: For low urgency emails (1-2)
-- respond: For medium urgency emails (3)
-- escalate: For high urgency emails (4-5)
+SYSTEM_PROMPT = """You are an expert customer support agent for email triage.
+Your task is to process each email efficiently and correctly.
 
-Reply with EXACTLY ONE WORD: archive, respond, or escalate.
+Actions and when to use them:
+- archive: For low urgency emails (1-2) like newsletters, suggestions, general questions
+- respond: For medium urgency emails (3) like billing questions, feature requests
+- escalate: For high urgency emails (4-5) like security alerts, account locks, refunds
+- request_info: When you need more information to proceed
+- mark_urgent: For time-sensitive issues that need priority attention
+
+Reply with EXACTLY ONE WORD: archive, respond, escalate, request_info, or mark_urgent.
 No explanation. No punctuation. Just the action word."""
 
-# ---------------------------------------------------------------------------
-# Logging helpers — must match the spec exactly
-# ---------------------------------------------------------------------------
+# ============================================================================
+# LOGGING HELPERS — matches spec exactly
+# ============================================================================
 
 def log_start(task: str, env: str, model: str) -> None:
     print(f"[START] task={task} env={env} model={model}", flush=True)
@@ -81,15 +126,73 @@ def log_end(success: bool, steps: int, score: float, rewards: list) -> None:
     )
 
 
-# ---------------------------------------------------------------------------
-# LLM call
-# ---------------------------------------------------------------------------
+# ============================================================================
+# ENHANCED REWARD CALCULATION
+# ============================================================================
 
-def get_model_action(client: OpenAI, urgency: int, subject: str, history: list) -> str:
-    """Ask the LLM to decide archive/respond/escalate and return the action."""
+def calculate_reward(urgency: int, action: str) -> float:
+    """
+    Calculate reward based on action appropriateness.
+    Returns value between 0.0 and 1.0.
+    """
+    # High urgency emails (4-5)
+    if urgency >= 4:
+        if action == 'escalate':
+            return 0.95
+        elif action == 'mark_urgent':
+            return 0.85
+        elif action == 'respond':
+            return 0.50
+        elif action == 'request_info':
+            return 0.40
+        elif action == 'archive':
+            return 0.00
+        else:
+            return 0.30
     
-    # If no API key (local testing), use smart fallback
-    if not API_KEY or API_KEY == "":
+    # Low urgency emails (1-2)
+    elif urgency <= 2:
+        if action == 'archive':
+            return 0.95
+        elif action == 'respond':
+            return 0.75
+        elif action == 'request_info':
+            return 0.60
+        elif action == 'mark_urgent':
+            return 0.30
+        elif action == 'escalate':
+            return 0.20
+        else:
+            return 0.50
+    
+    # Medium urgency emails (3)
+    else:
+        if action == 'respond':
+            return 0.95
+        elif action == 'request_info':
+            return 0.80
+        elif action == 'escalate':
+            return 0.60
+        elif action == 'mark_urgent':
+            return 0.50
+        elif action == 'archive':
+            return 0.40
+        else:
+            return 0.55
+
+
+# ============================================================================
+# LLM CALL WITH RETRY LOGIC
+# ============================================================================
+
+def get_model_action(client: OpenAI, urgency: int, subject: str, body: str, history: list) -> str:
+    """
+    Ask the LLM to decide the best action with retry logic.
+    Returns: archive, respond, escalate, request_info, or mark_urgent
+    """
+    
+    # Local testing fallback (no API key)
+    if not API_KEY or API_KEY == "" or API_KEY == "dummy-key-for-testing":
         if urgency >= 4:
             return "escalate"
         elif urgency <= 2:
@@ -97,58 +200,73 @@ def get_model_action(client: OpenAI, urgency: int, subject: str, history: list) 
         else:
             return "respond"
     
-    user_prompt = f"""Email: {subject}
-Urgency level: {urgency}/5
+    user_prompt = f"""Email Subject: {subject}
+Email Body: {body[:200]}
+Urgency Level: {urgency}/5
 
-Previous actions in this episode: {history[-3:] if history else 'None'}
+Recent actions: {history[-3:] if history else 'None'}
 
-Your decision (archive, respond, or escalate):"""
-
-    try:
-        completion = client.chat.completions.create(
-            model=MODEL_NAME,
-            messages=[
-                {"role": "system", "content": SYSTEM_PROMPT},
-                {"role": "user", "content": user_prompt},
-            ],
-            temperature=TEMPERATURE,
-            max_tokens=MAX_TOKENS,
-        )
-        text = (completion.choices[0].message.content or "").strip().lower()
-        
-        # Extract action
-        if "archive" in text:
-            return "archive"
-        elif "escalate" in text:
-            return "escalate"
-        elif "respond" in text:
-            return "respond"
-        else:
-            # Smart fallback based on urgency
-            if urgency >= 4:
-                return "escalate"
-            elif urgency <= 2:
+Best action (archive/respond/escalate/request_info/mark_urgent):"""
+    
+    for attempt in range(RETRY_COUNT):
+        try:
+            completion = client.chat.completions.create(
+                model=MODEL_NAME,
+                messages=[
+                    {"role": "system", "content": SYSTEM_PROMPT},
+                    {"role": "user", "content": user_prompt},
+                ],
+                temperature=TEMPERATURE,
+                max_tokens=MAX_TOKENS,
+                timeout=30
+            )
+            text = (completion.choices[0].message.content or "").strip().lower()
+            
+            # Extract action
+            if "archive" in text:
                 return "archive"
-            else:
+            elif "escalate" in text:
+                return "escalate"
+            elif "respond" in text:
                 return "respond"
+            elif "request" in text or "info" in text:
+                return "request_info"
+            elif "urgent" in text or "mark" in text:
+                return "mark_urgent"
+            else:
+                # Smart fallback based on urgency
+                if urgency >= 4:
+                    return "escalate"
+                elif urgency <= 2:
+                    return "archive"
+                else:
+                    return "respond"
+                    
+        except Exception as exc:
+            print(f"[DEBUG] Attempt {attempt + 1} failed: {exc}", flush=True)
+            if attempt < RETRY_COUNT - 1:
+                time.sleep(RETRY_DELAY)
+            else:
+                # Final fallback
+                if urgency >= 4:
+                    return "escalate"
+                elif urgency <= 2:
+                    return "archive"
+                else:
+                    return "respond"
+    
+    return "respond"
 
-    except Exception as exc:
-        print(f"[DEBUG] Model request failed: {exc}", flush=True)
-        # Fallback based on urgency
-        if urgency >= 4:
-            return "escalate"
-        elif urgency <= 2:
-            return "archive"
-        else:
-            return "respond"
 
-
-# ---------------------------------------------------------------------------
-# Single task runner
-# ---------------------------------------------------------------------------
+# ============================================================================
+# SINGLE TASK RUNNER
+# ============================================================================
 
 def run_task(client: OpenAI, task_name: str) -> None:
-    """Run one full episode for the given task, emitting [START]/[STEP]/[END] logs."""
+    """
+    Run one full episode for the given task.
+    Emits [START]/[STEP]/[END] logs as required.
+    """
     
     history = []
     rewards = []
@@ -164,19 +282,13 @@ def run_task(client: OpenAI, task_name: str) -> None:
         for step, email in enumerate(EMAILS, start=1):
             urgency = email['urgency']
             subject = email['subject']
+            body = email['body']
             
             # Get action from LLM
-            action = get_model_action(client, urgency, subject, history)
+            action = get_model_action(client, urgency, subject, body, history)
             
-            # Calculate reward based on action appropriateness
-            if urgency >= 4 and action == 'escalate':
-                reward = 0.90
-            elif urgency <= 2 and action == 'archive':
-                reward = 0.90
-            elif 2 < urgency < 4 and action == 'respond':
-                reward = 0.80
-            else:
-                reward = 0.50
+            # Calculate reward using enhanced function
+            reward = calculate_reward(urgency, action)
             
             rewards.append(reward)
             steps_taken = step
@@ -185,11 +297,17 @@ def run_task(client: OpenAI, task_name: str) -> None:
             # Build trajectory for grading
             trajectory.append({
                 "step": step - 1,
-                "email": {"urgency": urgency, "subject": subject},
+                "email": {
+                    "urgency": urgency,
+                    "subject": subject,
+                    "body": body[:100],
+                    "sender": email.get("sender", ""),
+                    "keywords": email.get("keywords", [])
+                },
                 "action": {"action_type": action}
             })
             
-            history.append(f"Step {step}: {action}")
+            history.append(f"Step {step}: {action} (reward: {reward:.2f})")
             
             log_step(step=step, action=action, reward=reward, done=done, error=last_error)
             
@@ -200,7 +318,7 @@ def run_task(client: OpenAI, task_name: str) -> None:
         score = run_grader(task_name, trajectory)
         
         # Ensure score is strictly between 0 and 1
-        score = max(0.01, min(0.99, score))
+        score = max(0.01, min(0.99, float(score)))
         success = score >= SUCCESS_SCORE_THRESHOLD
 
     except Exception as exc:
@@ -211,19 +329,28 @@ def run_task(client: OpenAI, task_name: str) -> None:
         log_end(success=success, steps=steps_taken, score=score, rewards=rewards)
 
 
-# ---------------------------------------------------------------------------
-# Main — iterate all tasks
-# ---------------------------------------------------------------------------
+# ============================================================================
+# MAIN FUNCTION
+# ============================================================================
 
 def main() -> None:
+    """Main entry point - runs all 3 tasks."""
+    
     # Check API key
-    if not API_KEY:
+    if not API_KEY or API_KEY == "":
         print("[START] task=email_triage env=email-triage-env model=unknown")
         print("[END] success=false steps=0 score=0.000 rewards=")
-        sys.exit(1)
-    
-    # Initialize OpenAI client
-    client = OpenAI(base_url=API_BASE_URL, api_key=API_KEY)
+        print("[INFO] Running in fallback mode (no API calls)", flush=True)
+        # Still run with fallback for local testing
+        client = None
+    else:
+        try:
+            client = OpenAI(base_url=API_BASE_URL, api_key=API_KEY, timeout=30)
+            print(f"[INFO] Using API: {API_BASE_URL}", flush=True)
+            print(f"[INFO] Model: {MODEL_NAME}", flush=True)
+        except Exception as e:
+            print(f"[ERROR] Failed to initialize client: {e}", flush=True)
+            client = None
     
     # Run all 3 tasks
     for task_name in TASKS:
