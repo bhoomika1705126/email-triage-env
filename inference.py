@@ -20,10 +20,8 @@ import sys
 import json
 from openai import OpenAI
 
-# Import individual task graders
-from tasks.easy_task import grade_easy
-from tasks.medium_task import grade_medium
-from tasks.hard_task import grade_hard
+# Import from single grader.py (NOT separate task files)
+from tasks.grader import run_grader
 
 # Configuration
 API_BASE_URL = os.getenv("API_BASE_URL", "https://api.openai.com/v1")
@@ -89,6 +87,15 @@ def log_end(success: bool, steps: int, score: float, rewards: list) -> None:
 
 def get_model_action(client: OpenAI, urgency: int, subject: str, history: list) -> str:
     """Ask the LLM to decide archive/respond/escalate and return the action."""
+    
+    # If no API key (local testing), use smart fallback
+    if not API_KEY or API_KEY == "":
+        if urgency >= 4:
+            return "escalate"
+        elif urgency <= 2:
+            return "archive"
+        else:
+            return "respond"
     
     user_prompt = f"""Email: {subject}
 Urgency level: {urgency}/5
@@ -189,13 +196,8 @@ def run_task(client: OpenAI, task_name: str) -> None:
             if done:
                 break
         
-        # Grade based on task type
-        if task_name == 'easy':
-            score = grade_easy(trajectory)
-        elif task_name == 'medium':
-            score = grade_medium(trajectory)
-        else:  # hard
-            score = grade_hard(trajectory)
+        # Grade using the unified run_grader function
+        score = run_grader(task_name, trajectory)
         
         # Ensure score is strictly between 0 and 1
         score = max(0.01, min(0.99, score))
